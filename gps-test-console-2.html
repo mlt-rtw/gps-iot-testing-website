@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPS Test Console</title>
+<style>
+  :root{
+    --bg:#0B0F0E;
+    --panel:#111817;
+    --panel-2:#161F1D;
+    --line:#233330;
+    --phosphor:#39FF6A;
+    --phosphor-dim:#1E8A45;
+    --amber:#FFB020;
+    --red:#FF5C5C;
+    --text:#E8ECEA;
+    --muted:#6B7876;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;padding:0;height:100%;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  .mono{ font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace; }
+
+  #app{
+    display:grid;
+    grid-template-rows:auto 1fr auto;
+    height:100vh;
+    width:100vw;
+  }
+
+  /* ---- Top bar ---- */
+  #topbar{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:10px 16px;
+    background:var(--panel);
+    border-bottom:1px solid var(--line);
+    flex-wrap:wrap;
+  }
+  .brand{
+    display:flex; align-items:center; gap:8px;
+    font-weight:700; letter-spacing:0.04em; font-size:13px;
+    color:var(--phosphor); text-transform:uppercase;
+    margin-right:8px;
+  }
+  .dot{
+    width:8px;height:8px;border-radius:50%;
+    background:var(--muted);
+    box-shadow:0 0 0 0 rgba(57,255,106,0);
+    transition:background .2s, box-shadow .2s;
+    flex-shrink:0;
+  }
+  .dot.live{
+    background:var(--phosphor);
+    animation:pulse 1.6s infinite;
+  }
+  .dot.err{ background:var(--red); }
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(57,255,106,.5);}
+    70%{box-shadow:0 0 0 8px rgba(57,255,106,0);}
+    100%{box-shadow:0 0 0 0 rgba(57,255,106,0);}
+  }
+  input[type=text], select{
+    background:var(--bg);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:7px 10px;
+    border-radius:4px;
+    font-size:12.5px;
+    font-family:Consolas,Menlo,monospace;
+  }
+  input[type=text]{ flex:1; min-width:220px; }
+  input[type=text]:focus, select:focus{ outline:1px solid var(--phosphor); }
+  button{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:7px 14px;
+    border-radius:4px;
+    font-size:12.5px;
+    font-weight:600;
+    cursor:pointer;
+    letter-spacing:.02em;
+  }
+  button:hover{ border-color:var(--phosphor); color:var(--phosphor); }
+  button.primary{
+    background:var(--phosphor-dim);
+    border-color:var(--phosphor-dim);
+    color:#04140A;
+  }
+  button.primary:hover{ background:var(--phosphor); border-color:var(--phosphor); color:#04140A;}
+  button:disabled{ opacity:.4; cursor:not-allowed; }
+  label.field{ display:flex; flex-direction:column; gap:3px; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;}
+
+  /* ---- Main grid ---- */
+  #main{
+    display:grid;
+    grid-template-columns:1fr 320px;
+    min-height:0;
+  }
+  #mapWrap{ position:relative; background:#0d1211; overflow:hidden; }
+  #mapCanvas{ display:block; width:100%; height:100%; cursor:crosshair; }
+  #mapHint{
+    position:absolute; bottom:10px; left:10px;
+    font-size:10px; color:var(--muted);
+    background:rgba(17,24,23,0.8);
+    padding:4px 8px; border-radius:4px;
+    border:1px solid var(--line);
+  }
+  #zoomControls{
+    position:absolute; top:10px; right:10px;
+    display:flex; flex-direction:column; gap:4px;
+  }
+  #zoomControls button{ width:28px; height:28px; padding:0; font-size:16px; line-height:1; }
+
+  #sidebar{
+    background:var(--panel);
+    border-left:1px solid var(--line);
+    overflow-y:auto;
+    padding:14px;
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+  .card{
+    background:var(--panel-2);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:12px 14px;
+  }
+  .card h3{
+    margin:0 0 10px 0;
+    font-size:10px;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:var(--muted);
+    font-weight:600;
+  }
+  .readout-row{
+    display:flex; justify-content:space-between; align-items:baseline;
+    padding:5px 0;
+    border-bottom:1px dashed var(--line);
+  }
+  .readout-row:last-child{ border-bottom:none; }
+  .readout-label{ font-size:11px; color:var(--muted); }
+  .readout-value{
+    font-family:Consolas,Menlo,monospace;
+    font-size:14px;
+    color:var(--phosphor);
+    font-variant-numeric:tabular-nums;
+  }
+  .big-coords{
+    font-family:Consolas,Menlo,monospace;
+    font-size:20px;
+    color:var(--phosphor);
+    line-height:1.5;
+    letter-spacing:.02em;
+  }
+  .big-coords .lbl{ color:var(--muted); font-size:10px; display:block; text-transform:uppercase; letter-spacing:.08em;}
+
+  /* ---- Log strip ---- */
+  #logbar{
+    background:var(--panel);
+    border-top:1px solid var(--line);
+    padding:8px 16px;
+    font-family:Consolas,Menlo,monospace;
+    font-size:11px;
+    color:var(--muted);
+    height:96px;
+    overflow-y:auto;
+  }
+  #logbar .entry{ padding:1px 0; }
+  #logbar .entry.ok{ color:var(--phosphor-dim); }
+  #logbar .entry.error{ color:var(--red); }
+  #logbar .entry .ts{ color:var(--muted); margin-right:8px; }
+
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-track{ background:var(--panel); }
+  ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:4px; }
+
+  .badge{
+    font-size:10px;
+    padding:2px 7px;
+    border-radius:20px;
+    border:1px solid var(--line);
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    color:var(--muted);
+  }
+  .badge.mock{ color:var(--amber); border-color:var(--amber); }
+  .badge.live{ color:var(--phosphor); border-color:var(--phosphor); }
+
+  @media (max-width: 720px){
+    #main{ grid-template-columns:1fr; grid-template-rows:1fr auto; }
+    #sidebar{ border-left:none; border-top:1px solid var(--line); flex-direction:row; flex-wrap:wrap; }
+    .card{ flex:1; min-width:150px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="topbar">
+    <div class="brand"><span class="dot" id="statusDot"></span> GPS Test Console</div>
+
+    <label class="field" style="flex:2; min-width:240px;">
+      Endpoint URL
+      <input type="text" id="urlInput" placeholder="https://your-device.local/api/gps" value="https://example.invalid/api/gps">
+    </label>
+
+    <label class="field">
+      Poll every
+      <select id="intervalSelect">
+        <option value="1000">1s</option>
+        <option value="2000" selected>2s</option>
+        <option value="5000">5s</option>
+        <option value="10000">10s</option>
+      </select>
+    </label>
+
+    <label class="field">
+      Mode
+      <select id="modeSelect">
+        <option value="mock" selected>Mock data</option>
+        <option value="live">Live endpoint</option>
+      </select>
+    </label>
+
+    <button class="primary" id="startBtn">Start</button>
+    <button id="stopBtn" disabled>Stop</button>
+    <span class="badge mock" id="modeBadge">MOCK</span>
+  </div>
+
+  <div id="main">
+    <div id="mapWrap">
+      <canvas id="mapCanvas"></canvas>
+      <div id="zoomControls">
+        <button id="zoomIn">+</button>
+        <button id="zoomOut">&minus;</button>
+        <button id="zoomReset" title="Recenter">&#8982;</button>
+      </div>
+      <div id="mapHint">Scroll trail &middot; coordinate grid, not map tiles</div>
+    </div>
+
+    <div id="sidebar">
+      <div class="card">
+        <h3>Position</h3>
+        <div class="big-coords">
+          <span class="lbl">Latitude</span>
+          <span id="latBig">—</span>
+        </div>
+        <div class="big-coords" style="margin-top:8px;">
+          <span class="lbl">Longitude</span>
+          <span id="lonBig">—</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Telemetry</h3>
+        <div class="readout-row"><span class="readout-label">Altitude</span><span class="readout-value" id="alt">—</span></div>
+        <div class="readout-row"><span class="readout-label">Speed</span><span class="readout-value" id="speed">—</span></div>
+        <div class="readout-row"><span class="readout-label">Heading</span><span class="readout-value" id="heading">—</span></div>
+        <div class="readout-row"><span class="readout-label">Accuracy</span><span class="readout-value" id="accuracy">—</span></div>
+        <div class="readout-row"><span class="readout-label">Satellites</span><span class="readout-value" id="sats">—</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Connection</h3>
+        <div class="readout-row"><span class="readout-label">Status</span><span class="readout-value" id="connStatus">Idle</span></div>
+        <div class="readout-row"><span class="readout-label">Last update</span><span class="readout-value" id="lastUpdate">—</span></div>
+        <div class="readout-row"><span class="readout-label">Requests</span><span class="readout-value" id="reqCount">0</span></div>
+        <div class="readout-row"><span class="readout-label">Errors</span><span class="readout-value" id="errCount">0</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Raw response</h3>
+        <pre id="rawJson" class="mono" style="margin:0; font-size:11px; color:var(--muted); white-space:pre-wrap; word-break:break-all; max-height:140px; overflow-y:auto;">—</pre>
+      </div>
+    </div>
+  </div>
+
+  <div id="logbar"></div>
+
+</div>
+
+<script>
+(function(){
+  var canvas = document.getElementById('mapCanvas');
+  var ctx = canvas.getContext('2d');
+  var trailCoords = [];
+  var polling = null;
+  var reqCount = 0, errCount = 0;
+  var mockLat = 6.6885, mockLon = -1.6244; // Kumasi-ish starting point for mock mode
+  var mockBearing = 0;
+  var current = null;
+  var metersPerPixel = 2.0; // zoom level
+
+  function resizeCanvas(){
+    var rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    canvas.style.width = rect.width + 'px';
+    canvas.style.height = rect.height + 'px';
+    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    drawMap();
+  }
+  window.addEventListener('resize', resizeCanvas);
+
+  // Convert lat/lon delta (relative to current position) into meters, then pixels
+  function latLonToXY(lat, lon, originLat, originLon){
+    var R = 6371000;
+    var dLat = (lat - originLat) * Math.PI/180;
+    var dLon = (lon - originLon) * Math.PI/180;
+    var x = dLon * R * Math.cos(originLat * Math.PI/180);
+    var y = dLat * R;
+    return { x: x, y: -y }; // invert y so north is up
+  }
+
+  function drawMap(){
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    ctx.clearRect(0,0,w,h);
+
+    // background
+    ctx.fillStyle = '#0d1211';
+    ctx.fillRect(0,0,w,h);
+
+    if(!current){
+      ctx.fillStyle = '#2a3634';
+      ctx.font = '12px Consolas, Menlo, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Waiting for position data…', w/2, h/2);
+      return;
+    }
+
+    var cx = w/2, cy = h/2;
+    var originLat = current.lat, originLon = current.lon;
+
+    // grid lines every ~50 pixels representing metersPerPixel*50 meters
+    ctx.strokeStyle = 'rgba(35,51,48,0.6)';
+    ctx.lineWidth = 1;
+    var gridSpacing = 50;
+    var offsetX = cx % gridSpacing;
+    var offsetY = cy % gridSpacing;
+    for(var gx = offsetX; gx < w; gx += gridSpacing){
+      ctx.beginPath(); ctx.moveTo(gx,0); ctx.lineTo(gx,h); ctx.stroke();
+    }
+    for(var gy = offsetY; gy < h; gy += gridSpacing){
+      ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(w,gy); ctx.stroke();
+    }
+
+    // scale bar
+    var barMeters = Math.round(gridSpacing * metersPerPixel);
+    ctx.fillStyle = '#6B7876';
+    ctx.font = '10px Consolas, Menlo, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('~' + barMeters + 'm / grid', 10, h - 10);
+
+    // trail
+    if(trailCoords.length > 1){
+      ctx.strokeStyle = 'rgba(57,255,106,0.5)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for(var i=0;i<trailCoords.length;i++){
+        var p = latLonToXY(trailCoords[i].lat, trailCoords[i].lon, originLat, originLon);
+        var px = cx + p.x/metersPerPixel, py = cy + p.y/metersPerPixel;
+        if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      }
+      ctx.stroke();
+    }
+
+    // current position marker (center, since map recenters on latest fix)
+    var grad = ctx.createRadialGradient(cx,cy,0,cx,cy,18);
+    grad.addColorStop(0,'rgba(57,255,106,0.9)');
+    grad.addColorStop(1,'rgba(57,255,106,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(cx,cy,18,0,Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = '#39FF6A';
+    ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#0B0F0E';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // heading indicator
+    if(current.heading !== undefined && !isNaN(current.heading)){
+      var rad = (current.heading - 90) * Math.PI/180;
+      ctx.strokeStyle = '#39FF6A';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx,cy);
+      ctx.lineTo(cx + Math.cos(rad)*24, cy + Math.sin(rad)*24);
+      ctx.stroke();
+    }
+  }
+
+  document.getElementById('zoomIn').addEventListener('click', function(){
+    metersPerPixel = Math.max(0.2, metersPerPixel / 1.5);
+    drawMap();
+  });
+  document.getElementById('zoomOut').addEventListener('click', function(){
+    metersPerPixel = metersPerPixel * 1.5;
+    drawMap();
+  });
+  document.getElementById('zoomReset').addEventListener('click', function(){
+    metersPerPixel = 2.0;
+    drawMap();
+  });
+
+  function log(msg, type){
+    var bar = document.getElementById('logbar');
+    var entry = document.createElement('div');
+    entry.className = 'entry ' + (type || '');
+    var ts = new Date().toLocaleTimeString();
+    entry.innerHTML = '<span class="ts">' + ts + '</span>' + msg;
+    bar.appendChild(entry);
+    bar.scrollTop = bar.scrollHeight;
+  }
+
+  function setStatus(state){
+    var dot = document.getElementById('statusDot');
+    var connStatus = document.getElementById('connStatus');
+    dot.className = 'dot';
+    if(state === 'live'){ dot.classList.add('live'); connStatus.textContent = 'Connected'; }
+    else if(state === 'error'){ dot.classList.add('err'); connStatus.textContent = 'Error'; }
+    else { connStatus.textContent = 'Idle'; }
+  }
+
+  function fmt(n, digits){
+    if(n === undefined || n === null || isNaN(n)) return '—';
+    return Number(n).toFixed(digits === undefined ? 2 : digits);
+  }
+
+  function updateReadout(data){
+    document.getElementById('latBig').textContent = fmt(data.lat, 6);
+    document.getElementById('lonBig').textContent = fmt(data.lon, 6);
+    document.getElementById('alt').textContent = data.alt !== undefined ? fmt(data.alt,1) + ' m' : '—';
+    document.getElementById('speed').textContent = data.speed !== undefined ? fmt(data.speed,1) + ' m/s' : '—';
+    document.getElementById('heading').textContent = data.heading !== undefined ? fmt(data.heading,0) + '°' : '—';
+    document.getElementById('accuracy').textContent = data.accuracy !== undefined ? '±' + fmt(data.accuracy,1) + ' m' : '—';
+    document.getElementById('sats').textContent = data.satellites !== undefined ? data.satellites : '—';
+    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+    document.getElementById('rawJson').textContent = JSON.stringify(data, null, 2);
+
+    if(data.lat !== undefined && data.lon !== undefined && !isNaN(data.lat) && !isNaN(data.lon)){
+      current = data;
+      trailCoords.push({ lat:data.lat, lon:data.lon });
+      if(trailCoords.length > 300) trailCoords.shift();
+      drawMap();
+    }
+  }
+
+  function mockFetch(){
+    return new Promise(function(resolve){
+      setTimeout(function(){
+        mockBearing += (Math.random() - 0.5) * 30;
+        var distance = 0.00008 + Math.random()*0.00006;
+        mockLat += Math.cos(mockBearing * Math.PI/180) * distance;
+        mockLon += Math.sin(mockBearing * Math.PI/180) * distance;
+        resolve({
+          lat: mockLat,
+          lon: mockLon,
+          alt: 260 + Math.random()*5,
+          speed: Math.max(0, 1.2 + Math.random()*2),
+          heading: ((mockBearing % 360) + 360) % 360,
+          accuracy: 3 + Math.random()*4,
+          satellites: 6 + Math.floor(Math.random()*6),
+          timestamp: new Date().toISOString()
+        });
+      }, 120);
+    });
+  }
+
+  function normalizeData(raw){
+    var d = raw.gps || raw;
+    return {
+      lat: d.lat !== undefined ? d.lat : d.latitude,
+      lon: d.lon !== undefined ? d.lon : (d.lng !== undefined ? d.lng : d.longitude),
+      alt: d.alt !== undefined ? d.alt : d.altitude,
+      speed: d.speed,
+      heading: d.heading !== undefined ? d.heading : d.bearing,
+      accuracy: d.accuracy,
+      satellites: d.satellites !== undefined ? d.satellites : d.sats
+    };
+  }
+
+  function poll(){
+    var mode = document.getElementById('modeSelect').value;
+    reqCount++;
+    document.getElementById('reqCount').textContent = reqCount;
+
+    if(mode === 'mock'){
+      mockFetch().then(function(data){
+        setStatus('live');
+        updateReadout(data);
+      });
+      return;
+    }
+
+    var url = document.getElementById('urlInput').value.trim();
+    if(!url){
+      setStatus('error');
+      log('No endpoint URL set.', 'error');
+      return;
+    }
+
+    fetch(url, { method:'GET', headers:{ 'Accept':'application/json' } })
+      .then(function(res){
+        if(!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function(json){
+        setStatus('live');
+        var normalized = normalizeData(json);
+        updateReadout(normalized);
+        log('OK &middot; ' + url, 'ok');
+      })
+      .catch(function(err){
+        errCount++;
+        document.getElementById('errCount').textContent = errCount;
+        setStatus('error');
+        log('Fetch failed: ' + err.message, 'error');
+      });
+  }
+
+  function start(){
+    var mode = document.getElementById('modeSelect').value;
+    var interval = parseInt(document.getElementById('intervalSelect').value, 10);
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = false;
+    document.getElementById('urlInput').disabled = (mode === 'mock');
+    document.getElementById('modeBadge').textContent = mode.toUpperCase();
+    document.getElementById('modeBadge').className = 'badge ' + mode;
+    log('Started polling (' + mode + ' mode, every ' + interval + 'ms)');
+    poll();
+    polling = setInterval(poll, interval);
+  }
+
+  function stop(){
+    clearInterval(polling);
+    polling = null;
+    document.getElementById('startBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = true;
+    document.getElementById('urlInput').disabled = false;
+    setStatus('idle');
+    log('Stopped.');
+  }
+
+  document.getElementById('startBtn').addEventListener('click', start);
+  document.getElementById('stopBtn').addEventListener('click', stop);
+  document.getElementById('modeSelect').addEventListener('change', function(){
+    var mode = this.value;
+    document.getElementById('urlInput').disabled = (mode === 'mock' && polling);
+  });
+
+  resizeCanvas();
+  log('Ready. Mock mode selected — hit Start to see live simulated GPS data, or switch to Live endpoint and paste your device URL.');
+})();
+</script>
+</body>
+</html>
